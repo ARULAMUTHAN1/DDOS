@@ -7,7 +7,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import pandas as pd
 from src.predict import HybridDDoSDetector
 
@@ -46,7 +46,7 @@ def predict():
 
 @app.route('/')
 def home():
-    return "DDoS Protection System API. Use /predict for predictions."
+    return render_template('index.html')
 
 if __name__ == '__main__':
     # For development, run with debug=True

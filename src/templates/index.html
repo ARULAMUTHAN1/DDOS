@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DDoS Protection System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 2rem;
+        }
+        .status-safe {
+            color: green;
+        }
+        .status-danger {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">DDoS Protection System Dashboard</h1>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">System Status</h5>
+                        <p class="card-text">
+                            Status: <span id="status" class="status-safe">Protected</span><br>
+                            Last Check: <span id="lastCheck">-</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Test Detection</h5>
+                        <form id="testForm" class="mt-3">
+                            <div class="mb-3">
+                                <label for="source_ip" class="form-label">Source IP</label>
+                                <input type="text" class="form-control" id="source_ip" name="source_ip" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="dest_ip" class="form-label">Destination IP</label>
+                                <input type="text" class="form-control" id="dest_ip" name="dest_ip" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Test Traffic</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Recent Activity</h5>
+                        <div id="activity" class="mt-3">
+                            <p>No recent activity</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('testForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = {
+                source_ip: document.getElementById('source_ip').value,
+                dest_ip: document.getElementById('dest_ip').value
+            };
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+                const result = await response.json();
+                
+                // Update activity log
+                const activity = document.getElementById('activity');
+                const timestamp = new Date().toLocaleString();
+                activity.innerHTML = `
+                    <p><strong>${timestamp}</strong>: Traffic from ${formData.source_ip} to ${formData.dest_ip} - 
+                    <span class="${result.prediction ? 'status-danger' : 'status-safe'}">
+                        ${result.prediction ? 'Potential DDoS' : 'Normal Traffic'}
+                    </span></p>
+                    ${activity.innerHTML}
+                `;
+
+                // Update last check time
+                document.getElementById('lastCheck').textContent = timestamp;
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error testing traffic. Please try again.');
+            }
+        });
+    </script>
+</body>
+</html>
