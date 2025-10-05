@@ -28,6 +28,14 @@
                         <h5 class="card-title">System Status</h5>
                         <p class="card-text">
                             Status: <span id="status" class="status-safe">Protected</span><br>
+                            Your IP: <strong>{{ client_ip }}</strong><br>
+                            IP Status: <span id="ipStatus" class="{% if is_blocked %}status-danger{% else %}status-safe{% endif %}">
+                                {% if is_blocked %}
+                                    Blocked ({{ "%.0f"|format(remaining_seconds) }}s remaining)
+                                {% else %}
+                                    Allowed
+                                {% endif %}
+                            </span><br>
                             Last Check: <span id="lastCheck">-</span>
                         </p>
                     </div>
@@ -37,17 +45,79 @@
             <div class="col-md-6">
                 <div class="card">
                     <div class="card-body">
-                        <h5 class="card-title">Test Detection</h5>
+                        <h5 class="card-title">Test IP Address</h5>
                         <form id="testForm" class="mt-3">
                             <div class="mb-3">
-                                <label for="source_ip" class="form-label">Source IP</label>
-                                <input type="text" class="form-control" id="source_ip" name="source_ip" required>
+                                <label for="source_ip" class="form-label">Enter IP Address to Test</label>
+                                <input type="text" class="form-control" id="source_ip" name="source_ip" placeholder="e.g. 192.168.1.1" required>
                             </div>
-                            <div class="mb-3">
-                                <label for="dest_ip" class="form-label">Destination IP</label>
-                                <input type="text" class="form-control" id="dest_ip" name="dest_ip" required>
+                            <button type="submit" class="btn btn-primary">Check IP Status</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis Results -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Analysis Results</h5>
+                        <div id="results" style="display: none;">
+                            <div class="alert" id="result-alert" role="alert">
+                                <h4 class="alert-heading" id="result-heading">Analysis Complete</h4>
+                                <p id="result-message"></p>
                             </div>
-                            <button type="submit" class="btn btn-primary">Test Traffic</button>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>Detection Details:</h6>
+                                    <ul class="list-unstyled">
+                                        <li>Confidence: <span id="confidence" class="fw-bold"></span></li>
+                                        <li>Risk Level: <span id="risk-level" class="fw-bold"></span></li>
+                                        <li>XGBoost Probability: <span id="xgboost-prob" class="fw-bold"></span></li>
+                                        <li>LSTM Anomaly Score: <span id="lstm-score" class="fw-bold"></span></li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Action Taken:</h6>
+                                    <ul class="list-unstyled">
+                                        <li>Status: <span id="block-status" class="fw-bold"></span></li>
+                                        <li>Duration: <span id="block-duration" class="fw-bold"></span></li>
+                                        <li>Reason: <span id="block-reason" class="fw-bold"></span></li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Blocked IPs Table -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Currently Blocked IPs</h5>
+                        <div class="table-responsive">
+                            <table class="table" id="blocked-ips-table">
+                                <thead>
+                                    <tr>
+                                        <th>IP Address</th>
+                                        <th>Blocked At</th>
+                                        <th>Remaining Time</th>
+                                        <th>Risk Level</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="blocked-ips-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
                         </form>
                     </div>
                 </div>
@@ -84,26 +154,61 @@
         async function updateBlockedIPs() {
             try {
                 const response = await fetch('/blocked_ips');
-                const blockedIPs = await response.json();
+                const data = await response.json();
                 const blockedIPsDiv = document.getElementById('blockedIPs');
+                const blockedIPsTable = document.getElementById('blocked-ips-body');
                 
-                if (Object.keys(blockedIPs).length === 0) {
+                // Update the table
+                if (Object.keys(data.blocked_ips).length === 0) {
+                    blockedIPsTable.innerHTML = '<tr><td colspan="4">No IPs currently blocked</td></tr>';
                     blockedIPsDiv.innerHTML = '<p>No IPs currently blocked</p>';
-                    return;
+                } else {
+                    let tableHtml = '';
+                    let divHtml = '<ul class="list-unstyled">';
+                    
+                    for (const [ip, info] of Object.entries(data.blocked_ips)) {
+                        const remainingMinutes = Math.floor(info.remaining_seconds / 60);
+                        const remainingSeconds = Math.round(info.remaining_seconds % 60);
+                        const timeString = `${remainingMinutes}m ${remainingSeconds}s`;
+                        
+                        // Add to table
+                        tableHtml += `
+                            <tr>
+                                <td>${ip}</td>
+                                <td>${info.block_start}</td>
+                                <td>${timeString}</td>
+                                <td><span class="badge bg-danger">Blocked</span></td>
+                            </tr>
+                        `;
+                        
+                        // Add to side panel
+                        divHtml += `
+                            <li class="text-danger">
+                                ${ip} - Blocked for ${timeString}
+                            </li>
+                        `;
+                    }
+                    
+                    // Add monitored IPs to the table
+                    for (const [ip, info] of Object.entries(data.monitored_ips)) {
+                        tableHtml += `
+                            <tr>
+                                <td>${ip}</td>
+                                <td>Currently active</td>
+                                <td>${info.request_count} requests (${info.requests_per_second}/sec)</td>
+                                <td><span class="badge bg-warning">Monitored</span></td>
+                            </tr>
+                        `;
+                    }
+                    
+                    divHtml += '</ul>';
+                    blockedIPsTable.innerHTML = tableHtml;
+                    blockedIPsDiv.innerHTML = divHtml;
                 }
-
-                let html = '<ul class="list-unstyled">';
-                for (const [ip, data] of Object.entries(blockedIPs)) {
-                    html += `
-                        <li class="text-danger">
-                            ${ip} - Blocked for ${Math.round(data.remaining_seconds)} more seconds
-                        </li>
-                    `;
-                }
-                html += '</ul>';
-                blockedIPsDiv.innerHTML = html;
             } catch (error) {
                 console.error('Error updating blocked IPs:', error);
+                blockedIPsDiv.innerHTML = '<p>Error loading blocked IPs</p>';
+                blockedIPsTable.innerHTML = '<tr><td colspan="4">Error loading blocked IPs</td></tr>';
             }
         }
 
@@ -113,37 +218,31 @@
 
         document.getElementById('testForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const formData = {
-                source_ip: document.getElementById('source_ip').value,
-                dest_ip: document.getElementById('dest_ip').value
-            };
+            const sourceIp = document.getElementById('source_ip').value;
 
             try {
-                const response = await fetch('/predict', {
+                const response = await fetch('/check_ip', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(formData)
+                    body: JSON.stringify({ ip: sourceIp })
                 });
                 const result = await response.json();
                 
                 // Update activity log
                 const activity = document.getElementById('activity');
                 const timestamp = new Date().toLocaleString();
-                let status = 'Normal Traffic';
+                let status = 'IP Status: Allowed';
                 let statusClass = 'status-safe';
                 
-                if (result.error && result.error === 'IP is blocked') {
+                if (result.is_blocked) {
                     status = `IP Blocked (${Math.round(result.remaining_seconds)}s remaining)`;
-                    statusClass = 'status-danger';
-                } else if (result.prediction) {
-                    status = 'Potential DDoS - IP Blocked';
                     statusClass = 'status-danger';
                 }
                 
                 activity.innerHTML = `
-                    <p><strong>${timestamp}</strong>: Traffic from ${formData.source_ip} to ${formData.dest_ip} - 
+                    <p><strong>${timestamp}</strong>: Checked IP ${sourceIp} - 
                     <span class="${statusClass}">${status}</span></p>
                     ${activity.innerHTML}
                 `;
@@ -151,13 +250,11 @@
                 // Update last check time
                 document.getElementById('lastCheck').textContent = timestamp;
                 
-                // Update blocked IPs list immediately if needed
-                if (result.prediction || (result.error && result.error === 'IP is blocked')) {
-                    updateBlockedIPs();
-                }
+                // Update blocked IPs list
+                updateBlockedIPs();
             } catch (error) {
                 console.error('Error:', error);
-                alert('Error testing traffic. Please try again.');
+                alert('Error checking IP status. Please try again.');
             }
         });
     </script>
